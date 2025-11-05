@@ -40,7 +40,7 @@ ENV/
 env/
 .env
 .venv
-.python-version
+#.python-version
 
 # IDE specific files
 .idea/
@@ -50,6 +50,6 @@ env/
 .project
 .pydevproject
 
-# Kubernetes
+# Kubernetes - solo excluir archivos de configuración personal
 kubeconfig
-*.yaml
+~/.kube/config
