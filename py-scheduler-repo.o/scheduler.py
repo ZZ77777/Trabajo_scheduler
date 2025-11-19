@@ -9,7 +9,7 @@ def load_client(kubeconfig=None):
     return client.CoreV1Api()
 
 def bind_pod(api: client.CoreV1Api, pod, node_name: str):
-    target = client.V1ObjectReference(kind="Node", name=node_name)
+    target = client.V1ObjectReference(api_version="v1", kind="Node", name=node_name) # <--------
     meta = client.V1ObjectMeta(name=pod.metadata.name)
     body = client.V1Binding(target=target, metadata=meta)
     api.create_namespaced_binding(pod.metadata.namespace, body)
