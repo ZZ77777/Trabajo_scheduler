@@ -23,16 +23,15 @@ def bind_pod(api: client.CoreV1Api, pod, node_name: str):
         body=body
     )
 """
-
 def bind_pod(api: client.CoreV1Api, pod, node_name: str):
-    target = client.V1ObjectReference(
-        api_version="v1",
-        kind="Node",
-        name=node_name
-    )
+    target = client.V1ObjectReference(api_version="v1", kind="Node", name=node_name)
+
 
     body = client.V1Binding(
-        metadata=client.V1ObjectMeta(name=pod.metadata.name, namespace=pod.metadata.namespace),
+        metadata=client.V1ObjectMeta(
+            name=pod.metadata.name,
+            namespace=pod.metadata.namespace
+        ),
         target=target
     )
 
@@ -40,7 +39,14 @@ def bind_pod(api: client.CoreV1Api, pod, node_name: str):
         namespace=pod.metadata.namespace,
         body=body
     )
+"""
 
+def bind_pod(api, pod, node):
+    target = client.V1ObjectReference(kind="Node", name=node)
+    meta = client.V1ObjectMeta(name=pod.metadata.name)
+    body = client.V1Binding(target=target, metadata=meta)
+    api.create_namespaced_binding(pod.metadata.namespace, body)
+"""
 
 def choose_node(api: client.CoreV1Api, pod) -> str:
     nodes = api.list_node().items
