@@ -7,25 +7,13 @@ def load_client(kubeconfig=None):
     else:
         config.load_incluster_config()
     return client.CoreV1Api()
-"""
-def bind_pod(api: client.CoreV1Api, pod, node_name: str):
-    target = client.V1ObjectReference(api_version="v1", kind="Node", name=node_name) # <--------
-    meta = client.V1ObjectMeta(name=pod.metadata.name)
-    #body = client.V1Binding(target=target, metadata=meta)
-    body = client.V1PodBinding(
-        metadata=client.V1ObjectMeta(name=pod.metadata.name),
-        target=target
-    )
-    #api.create_namespaced_binding(pod.metadata.namespace, body)
-    api.create_namespaced_pod_binding(
-        name=pod.metadata.name,
-        namespace=pod.metadata.namespace,
-        body=body
-    )
-"""
-def bind_pod(api: client.CoreV1Api, pod, node_name: str):
-    target = client.V1ObjectReference(api_version="v1", kind="Node", name=node_name)
 
+def bind_pod(api: client.CoreV1Api, pod, node_name: str):
+    target = client.V1ObjectReference(
+        api_version="v1",
+        kind="Node",
+        name=node_name
+    )
 
     body = client.V1Binding(
         metadata=client.V1ObjectMeta(
@@ -39,27 +27,22 @@ def bind_pod(api: client.CoreV1Api, pod, node_name: str):
         namespace=pod.metadata.namespace,
         body=body
     )
-"""
-
-def bind_pod(api, pod, node):
-    target = client.V1ObjectReference(kind="Node", name=node)
-    meta = client.V1ObjectMeta(name=pod.metadata.name)
-    body = client.V1Binding(target=target, metadata=meta)
-    api.create_namespaced_binding(pod.metadata.namespace, body)
-"""
 
 def choose_node(api: client.CoreV1Api, pod) -> str:
     nodes = api.list_node().items
     if not nodes:
         raise RuntimeError("No nodes available")
+
     pods = api.list_pod_for_all_namespaces().items
     min_cnt = math.inf
     pick = nodes[0].metadata.name
+
     for n in nodes:
         cnt = sum(1 for p in pods if p.spec.node_name == n.metadata.name)
         if cnt < min_cnt:
             min_cnt = cnt
             pick = n.metadata.name
+
     return pick
 
 def main():
@@ -71,8 +54,12 @@ def main():
 
     api = load_client(args.kubeconfig)
     print(f"[polling] scheduler starting… name={args.scheduler_name}")
+
     while True:
-        pods = api.list_pod_for_all_namespaces(field_selector="spec.nodeName=").items
+        pods = api.list_pod_for_all_namespaces(
+            field_selector="spec.nodeName="
+        ).items
+
         for pod in pods:
             if pod.spec.scheduler_name != args.scheduler_name:
                 continue
@@ -82,6 +69,7 @@ def main():
                 print(f"Bound {pod.metadata.namespace}/{pod.metadata.name} -> {node}")
             except Exception as e:
                 print("error:", e)
+
         time.sleep(args.interval)
 
 if __name__ == "__main__":
