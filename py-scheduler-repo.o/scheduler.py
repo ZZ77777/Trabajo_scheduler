@@ -23,12 +23,21 @@ def bind_pod(api: client.CoreV1Api, pod, node_name: str):
         target=target
     )
 
-    api.create_namespaced_binding(
+    #api.create_namespaced_binding(
+    #    namespace=pod.metadata.namespace,
+    #    body=body
+    #)
+    
+    api.create_namespaced_pod_binding(
+        name=pod.metadata.name,
         namespace=pod.metadata.namespace,
         body=body
     )
 
+
 def choose_node(api: client.CoreV1Api, pod) -> str:
+    
+    
     nodes = api.list_node().items
     if not nodes:
         raise RuntimeError("No nodes available")
@@ -42,6 +51,10 @@ def choose_node(api: client.CoreV1Api, pod) -> str:
         if cnt < min_cnt:
             min_cnt = cnt
             pick = n.metadata.name
+            
+    print("DEBUG nodes:", [n.metadata.name for n in nodes])
+    print("DEBUG pick:", pick)
+
 
     return pick
 
@@ -56,15 +69,27 @@ def main():
     print(f"[polling] scheduler starting… name={args.scheduler_name}")
 
     while True:
-        pods = api.list_pod_for_all_namespaces(
-            field_selector="spec.nodeName="
-        ).items
+        #pods = api.list_pod_for_all_namespaces(
+        #    field_selector="spec.nodeName="
+        #).items
+        
+        all_pods = api.list_pod_for_all_namespaces().items
+        #pods = [p for p in all_pods if p.spec.node_name is None]
+        pods = [
+            p for p in all_pods
+            if not p.spec.node_name  # esto captura None, "", null, etc.
+            and p.status.phase == "Pending"
+        ]
+
+
+
 
         for pod in pods:
             if pod.spec.scheduler_name != args.scheduler_name:
                 continue
             try:
                 node = choose_node(api, pod)
+                print("DEBUG pod:", pod.metadata.name, "node:", node)
                 bind_pod(api, pod, node)
                 print(f"Bound {pod.metadata.namespace}/{pod.metadata.name} -> {node}")
             except Exception as e:
