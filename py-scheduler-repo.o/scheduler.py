@@ -1,5 +1,6 @@
 import argparse, time, math
 from kubernetes import client, config
+from kubernetes.client.rest import ApiException
 
 def load_client(kubeconfig=None):
     if kubeconfig:
@@ -9,32 +10,36 @@ def load_client(kubeconfig=None):
     return client.CoreV1Api()
 
 def bind_pod(api: client.CoreV1Api, pod, node_name: str):
-    """Bind a pod to a node using the Kubernetes Binding API"""
-    # Crear objetos paso a paso para evitar el bug de validación
-    target = client.V1ObjectReference()
-    target.kind = "Node"
-    target.api_version = "v1"
-    target.name = node_name
-
-    meta = client.V1ObjectMeta()
-    meta.name = pod.metadata.name
-
-    body = client.V1Binding()
-    body.target = target
-    body.metadata = meta
-
-    # Usar _preload_content=False para evitar el bug de deserialización
-    # El binding funciona correctamente aunque lance un ValueError
-    try:
-        api.create_namespaced_binding(
-            namespace=pod.metadata.namespace,
-            body=body,
-            _preload_content=False
-        )
-    except ValueError as e:
-        # Este error es esperado debido a un bug en el cliente de Python
-        # El binding se realiza correctamente a pesar del error
-        pass
+    """Bind a pod to a node using direct HTTP POST to avoid client library bug"""
+    binding = {
+        "apiVersion": "v1",
+        "kind": "Binding",
+        "metadata": {
+            "name": pod.metadata.name,
+            "namespace": pod.metadata.namespace
+        },
+        "target": {
+            "apiVersion": "v1",
+            "kind": "Node",
+            "name": node_name
+        }
+    }
+    
+    # Use the low-level API client to make the POST request directly
+    # This avoids the V1Binding deserialization bug
+    api_client = api.api_client
+    path = f"/api/v1/namespaces/{pod.metadata.namespace}/pods/{pod.metadata.name}/binding"
+    
+    response = api_client.call_api(
+        path,
+        'POST',
+        body=binding,
+        response_type='V1Status',
+        _return_http_data_only=True,
+        _preload_content=True
+    )
+    
+    return response
 
 
 def choose_node(api: client.CoreV1Api, pod) -> str:
@@ -43,7 +48,7 @@ def choose_node(api: client.CoreV1Api, pod) -> str:
     if not nodes:
         raise RuntimeError("No nodes available")
 
-    # Filtrar nodos que no están listos (opcional pero recomendado)
+    # Filter ready nodes
     ready_nodes = []
     for n in nodes:
         if n.status and n.status.conditions:
@@ -56,7 +61,7 @@ def choose_node(api: client.CoreV1Api, pod) -> str:
         print("WARNING: No ready nodes found, using all nodes")
         ready_nodes = nodes
 
-    # Contar pods por nodo
+    # Count pods per node
     pods = api.list_pod_for_all_namespaces().items
     min_cnt = math.inf
     pick = ready_nodes[0].metadata.name
@@ -83,15 +88,15 @@ def main():
 
     while True:
         try:
-            # Obtener todos los pods
+            # Get all pods
             all_pods = api.list_pod_for_all_namespaces().items
             
-            # Filtrar pods pendientes sin nodo asignado
+            # Filter pending pods without node assignment
             pending_pods = [
                 p for p in all_pods
-                if not p.spec.node_name  # Sin nodo asignado
-                and p.status.phase == "Pending"  # En estado Pending
-                and p.spec.scheduler_name == args.scheduler_name  # Para nuestro scheduler
+                if not p.spec.node_name  # No node assigned
+                and p.status.phase == "Pending"  # In Pending state
+                and p.spec.scheduler_name == args.scheduler_name  # For our scheduler
             ]
 
             if pending_pods:
@@ -103,7 +108,7 @@ def main():
                     print(f"Attempting to bind {pod.metadata.namespace}/{pod.metadata.name} -> {node}")
                     bind_pod(api, pod, node)
                     print(f"✓ Successfully bound {pod.metadata.namespace}/{pod.metadata.name} -> {node}")
-                except client.exceptions.ApiException as e:
+                except ApiException as e:
                     if e.status == 409:
                         print(f"Pod {pod.metadata.name} already bound (conflict)")
                     else:
