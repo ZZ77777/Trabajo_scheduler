@@ -10,36 +10,19 @@ def load_client(kubeconfig=None):
     return client.CoreV1Api()
 
 def bind_pod(api: client.CoreV1Api, pod, node_name: str):
-    """Bind a pod to a node using direct HTTP POST to avoid client library bug"""
-    binding = {
-        "apiVersion": "v1",
-        "kind": "Binding",
-        "metadata": {
-            "name": pod.metadata.name,
-            "namespace": pod.metadata.namespace
-        },
-        "target": {
-            "apiVersion": "v1",
-            "kind": "Node",
-            "name": node_name
+    """Bind a pod to a node by patching spec.nodeName"""
+    # Patch the pod to assign it to the node
+    body = {
+        "spec": {
+            "nodeName": node_name
         }
     }
     
-    # Use the low-level API client to make the POST request directly
-    # This avoids the V1Binding deserialization bug
-    api_client = api.api_client
-    path = f"/api/v1/namespaces/{pod.metadata.namespace}/pods/{pod.metadata.name}/binding"
-    
-    response = api_client.call_api(
-        path,
-        'POST',
-        body=binding,
-        response_type='V1Status',
-        _return_http_data_only=True,
-        _preload_content=True
+    api.patch_namespaced_pod(
+        name=pod.metadata.name,
+        namespace=pod.metadata.namespace,
+        body=body
     )
-    
-    return response
 
 
 def choose_node(api: client.CoreV1Api, pod) -> str:
