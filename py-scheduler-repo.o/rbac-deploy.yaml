@@ -11,8 +11,8 @@ metadata:
   name: my-scheduler-role
 rules:
 - apiGroups: [""]
-  resources: ["pods"]
-  verbs: ["get", "list", "watch"]
+  resources: ["pods"] 
+  verbs: ["get", "list", "watch", "patch"] # <-------
 - apiGroups: [""]
   resources: ["nodes"]
   verbs: ["get", "list", "watch"]
