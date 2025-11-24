@@ -10,45 +10,30 @@ def load_client(kubeconfig=None):
     return client.CoreV1Api()
 
 def bind_pod(api: client.CoreV1Api, pod, node_name: str):
-    """Bind a pod to a node by patching spec.nodeName"""
-    # Patch the pod to assign it to the node
-    #body = {
-    #    "spec": {
-    #        "nodeName": node_name
-    #    }
-    #}
-    
-    #api.patch_namespaced_pod(
-    #    name=pod.metadata.name,
-    #    namespace=pod.metadata.namespace,
-    #    body=body
-    #)
-    
-    binding = {
-        "apiVersion": "v1",
-        "kind": "Binding",
-        "metadata": {
-            "name": pod.metadata.name
-        },
-        "target": {
-            "apiVersion": "v1",
-            "kind": "Node",
-            "name": node_name
-        }
-    }
-    
-    api_response = api.api_client.call_api(
-        f'/api/v1/namespaces/{pod.metadata.namespace}/pods/{pod.metadata.name}/binding',
-        'POST',
-        body=binding,
-        header_params={'Content-Type': 'application/json'},
-        response_type=object,
-        _preload_content=False,
-        _return_http_data_only=False
+    """Bind a pod to a node using the Kubernetes Binding API"""
+    # Movido el target antes
+    target = client.V1ObjectReference(
+        kind="Node",
+        api_version="v1",
+        name=node_name
     )
     
-    if api_response[1] not in [200, 201]:
-        raise Exception(f"Binding failed with status {api_response[1]}")
+    # metadatos
+    meta = client.V1ObjectMeta(name=pod.metadata.name)
+    
+    # Pasando target como constructor, no como asignamiento
+    body = client.V1Binding(target=target, metadata=meta)
+    
+    # La API de binding tiene un bug de deserializacion pero binding aún esto funciona??????
+    try:
+        api.create_namespaced_binding(
+            namespace=pod.metadata.namespace,
+            body=body,
+            _preload_content=False  # Saltando deserializacion para evitar el bug
+        )
+    except ValueError as e:
+        print(e)
+        pass
 
 
 def choose_node(api: client.CoreV1Api, pod) -> str:
@@ -57,7 +42,7 @@ def choose_node(api: client.CoreV1Api, pod) -> str:
     if not nodes:
         raise RuntimeError("No nodes available")
 
-    # Filtrar nodos de tipo Ready
+    # Filtrar nodos listos
     ready_nodes = []
     for n in nodes:
         if n.status and n.status.conditions:
@@ -100,12 +85,12 @@ def main():
             # Obtener todos los pods
             all_pods = api.list_pod_for_all_namespaces().items
             
-            # Filter pending pods without node assignment
+            # Filtrar pods pending sin nodo asignado
             pending_pods = [
                 p for p in all_pods
                 if not p.spec.node_name  # No nodo asignado
-                and p.status.phase == "Pending"  # Estado Pending
-                and p.spec.scheduler_name == args.scheduler_name  
+                and p.status.phase == "Pending"  # En estado pending 
+                and p.spec.scheduler_name == args.scheduler_name  # Para este scheduler
             ]
 
             if pending_pods:
