@@ -12,17 +12,43 @@ def load_client(kubeconfig=None):
 def bind_pod(api: client.CoreV1Api, pod, node_name: str):
     """Bind a pod to a node by patching spec.nodeName"""
     # Patch the pod to assign it to the node
-    body = {
-        "spec": {
-            "nodeName": node_name
+    #body = {
+    #    "spec": {
+    #        "nodeName": node_name
+    #    }
+    #}
+    
+    #api.patch_namespaced_pod(
+    #    name=pod.metadata.name,
+    #    namespace=pod.metadata.namespace,
+    #    body=body
+    #)
+    
+    binding = {
+        "apiVersion": "v1",
+        "kind": "Binding",
+        "metadata": {
+            "name": pod.metadata.name
+        },
+        "target": {
+            "apiVersion": "v1",
+            "kind": "Node",
+            "name": node_name
         }
     }
     
-    api.patch_namespaced_pod(
-        name=pod.metadata.name,
-        namespace=pod.metadata.namespace,
-        body=body
+    api_response = api.api_client.call_api(
+        f'/api/v1/namespaces/{pod.metadata.namespace}/pods/{pod.metadata.name}/binding',
+        'POST',
+        body=binding,
+        header_params={'Content-Type': 'application/json'},
+        response_type=object,
+        _preload_content=False,
+        _return_http_data_only=False
     )
+    
+    if api_response[1] not in [200, 201]:
+        raise Exception(f"Binding failed with status {api_response[1]}")
 
 
 def choose_node(api: client.CoreV1Api, pod) -> str:
@@ -31,7 +57,7 @@ def choose_node(api: client.CoreV1Api, pod) -> str:
     if not nodes:
         raise RuntimeError("No nodes available")
 
-    # Filter ready nodes
+    # Filtrar nodos de tipo Ready
     ready_nodes = []
     for n in nodes:
         if n.status and n.status.conditions:
@@ -44,7 +70,7 @@ def choose_node(api: client.CoreV1Api, pod) -> str:
         print("WARNING: No ready nodes found, using all nodes")
         ready_nodes = nodes
 
-    # Count pods per node
+    # Contar pods por nodo
     pods = api.list_pod_for_all_namespaces().items
     min_cnt = math.inf
     pick = ready_nodes[0].metadata.name
@@ -71,15 +97,15 @@ def main():
 
     while True:
         try:
-            # Get all pods
+            # Obtener todos los pods
             all_pods = api.list_pod_for_all_namespaces().items
             
             # Filter pending pods without node assignment
             pending_pods = [
                 p for p in all_pods
-                if not p.spec.node_name  # No node assigned
-                and p.status.phase == "Pending"  # In Pending state
-                and p.spec.scheduler_name == args.scheduler_name  # For our scheduler
+                if not p.spec.node_name  # No nodo asignado
+                and p.status.phase == "Pending"  # Estado Pending
+                and p.spec.scheduler_name == args.scheduler_name  
             ]
 
             if pending_pods:
